@@ -20,6 +20,25 @@ if (UAGENT_BUILD_USAGE_EXAMPLES)
             $<$<BOOL:$<PLATFORM_ID:Linux>>:dl>
         )
 
+    set(CF_LINK_CPP_PATH ${CMAKE_SOURCE_DIR}/../crazyflie-link-cpp)
+    set(CMAKE_MODULE_PATH custom_agent PRIVATE ${CF_LINK_CPP_PATH}/tools/build)    
+
+    find_package(libusb REQUIRED)
+
+    include_directories(
+        include 
+        ${LIBUSB_INCLUDE_DIR}
+        ${CF_LINK_CPP_PATH}/include
+    )
+    target_link_libraries(CustomXRCEAgent PRIVATE ${LIBUSB_LIBRARY})
+
+            
+    target_link_libraries(CustomXRCEAgent 
+    PRIVATE 
+        ${CF_LINK_CPP_PATH}/build/libcrazyflieLinkCpp.a
+    )
+        
+    
     set_target_properties(CustomXRCEAgent
         PROPERTIES
             CXX_STANDARD

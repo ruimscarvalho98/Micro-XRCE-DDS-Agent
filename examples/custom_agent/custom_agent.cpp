@@ -14,6 +14,7 @@
 
 #include <uxr/agent/transport/custom/CustomAgent.hpp>
 #include <uxr/agent/transport/endpoint/IPv4EndPoint.hpp>
+#include <crazyflieLinkCpp/Connection.h>
 
 #include <poll.h>
 #include <sys/socket.h>
@@ -21,57 +22,57 @@
 #include <signal.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <iostream>
+#include <fstream>
+#include <unistd.h>
 
-/**
- * This custom XRCE Agent example attempts to show how easy is for the user to define a custom
- * Micro XRCE-DDS Agent behaviour, in terms of transport initialization and closing, and also
- * regarding read and write operations.
- * For this simple case, an UDP socket is opened on port 8888. Additionally, some information
- * messages are being printed to demonstrate the custom behaviour.
- * As the endpoint is already defined, we are using the provided
- * `eprosima::uxr::IPv4EndPoint` by the library.
- * Other transport protocols might need to implement their own endpoint struct.
- */
+#define CRTP_MAX_DATA_SIZE 29
+#define UROS_PORT 9
+#define CONSOLE_PORT 0
+#define DEFAULT_CHANNEL 80
+#define BUFFER_SIZE 10000
+
+//Enable or disable debugging
+//#define DEBUG
+
+#ifdef DEBUG
+#define DEBUG_PRINT(x) std::cout << x << std::endl;
+#else
+#define DEBUG_PRINT(x) do{}while(0)
+#endif
+#define CONSOLE_PRINT(x) DEBUG_PRINT(x)
+
+
+using namespace bitcraze::crazyflieLinkCpp;
+
+static size_t crtp_index_primary = 0;
+static uint8_t * crtp_buffer; 
+
 
 int main(int argc, char** argv)
 {
     eprosima::uxr::Middleware::Kind mw_kind(eprosima::uxr::Middleware::Kind::FASTDDS);
-    uint16_t agent_port(8888);
-    struct pollfd poll_fd;
 
+    if (argc < 2){
+        std::cout << "Please specify uri! Aborted." << std::endl;
+        exit(1);
+    } else if (argc > 2){
+        std::cout << "Too many arguments! Only one uri supported (for now) Aborted." << std::endl;
+        exit(1);
+    }
+
+    std::string uri = argv[1];
+    
+    Connection con1(uri);
+    std::ofstream debug_file;
     /**
      * @brief Agent's initialization behaviour description.
      */
     eprosima::uxr::CustomAgent::InitFunction init_function = [&]() -> bool
     {
-        bool rv = false;
-        poll_fd.fd = socket(PF_INET, SOCK_DGRAM, 0);
-
-        if (-1 != poll_fd.fd)
-        {
-            struct sockaddr_in address{};
-
-            address.sin_family = AF_INET;
-            address.sin_port = htons(agent_port);
-            address.sin_addr.s_addr = INADDR_ANY;
-            memset(address.sin_zero, '\0', sizeof(address.sin_zero));
-
-            if (-1 != bind(poll_fd.fd,
-                           reinterpret_cast<struct sockaddr*>(&address),
-                           sizeof(address)))
-            {
-                poll_fd.events = POLLIN;
-                rv = true;
-
-                UXR_AGENT_LOG_INFO(
-                    UXR_DECORATE_GREEN(
-                        "This is an example of a custom Micro XRCE-DDS Agent INIT function"),
-                    "port: {}",
-                    agent_port);
-            }
-        }
-
-        return rv;
+        debug_file.open("debug.txt");
+        crtp_buffer = static_cast<uint8_t *>(malloc(BUFFER_SIZE));
+        return true;
     };
 
     /**
@@ -79,27 +80,8 @@ int main(int argc, char** argv)
      */
     eprosima::uxr::CustomAgent::FiniFunction fini_function = [&]() -> bool
     {
-        if (-1 == poll_fd.fd)
-        {
-            return true;
-        }
-
-        if (0 == ::close(poll_fd.fd))
-        {
-            poll_fd.fd = -1;
-
-            UXR_AGENT_LOG_INFO(
-                UXR_DECORATE_GREEN(
-                    "This is an example of a custom Micro XRCE-DDS Agent FINI function"),
-                "port: {}",
-                agent_port);
-
-            return true;
-        }
-        else
-        {
-            return false;
-        }
+        debug_file.close();
+        return true;
     };
 
     /**
@@ -112,47 +94,47 @@ int main(int argc, char** argv)
             int timeout,
             eprosima::uxr::TransportRc& transport_rc) -> ssize_t
     {
-        struct sockaddr_in client_addr{};
-        socklen_t client_addr_len = sizeof(struct sockaddr_in);
-        ssize_t bytes_received = -1;
+        //std::cout << "in receive function " << std::endl;
+        size_t bytes_received = 0;
+        size_t * crtp_index = &crtp_index_primary;
+        source_endpoint->set_member_value<std::string>("uri", uri);
 
-        int poll_rv = poll(&poll_fd, 1, timeout);
+        Packet p; 
+        do {
+            p = con1.recv(timeout);
+            if (p.valid()){
+                //std::cout << "Is valid" << std::endl;
+            } else {
+                //std::cout << "Isnt valid" << std::endl;
+                continue;
+            }
 
-        if (0 < poll_rv)
-        {
-            bytes_received = recvfrom(
-                poll_fd.fd,
-                buffer,
-                buffer_length,
-                0,
-                reinterpret_cast<struct sockaddr *>(&client_addr),
-                &client_addr_len);
-
-            transport_rc = (-1 != bytes_received)
-                ? eprosima::uxr::TransportRc::ok
-                : eprosima::uxr::TransportRc::server_error;
-        }
-        else
-        {
-            transport_rc = (0 == poll_rv)
-                ? eprosima::uxr::TransportRc::timeout_error
-                : eprosima::uxr::TransportRc::server_error;
-            bytes_received = 0;
-        }
-
-        if (eprosima::uxr::TransportRc::ok == transport_rc)
-        {
-            UXR_AGENT_LOG_INFO(
-                UXR_DECORATE_GREEN(
-                    "This is an example of a custom Micro XRCE-DDS Agent RECV_MSG function"),
-                "port: {}",
-                agent_port);
-            source_endpoint->set_member_value<uint32_t>("address",
-                static_cast<uint32_t>(client_addr.sin_addr.s_addr));
-            source_endpoint->set_member_value<uint16_t>("port",
-                static_cast<uint16_t>(client_addr.sin_port));
+            if (p.port() == UROS_PORT){ 
+                DEBUG_PRINT("received uros packet " << (int )p.port() << "index: " << *crtp_index);
+                std::memcpy(&crtp_buffer[*crtp_index], p.payload(), p.payloadSize());
+                *crtp_index += p.payloadSize();
+            } else if (p.port() == CONSOLE_PORT){
+                std::string str((const char*)p.payload(), (size_t)p.payloadSize());
+                CONSOLE_PRINT("[CONSOLE] " << str);
+            }
+         } while (*crtp_index < buffer_length) ;
+        
+        if (buffer_length < *crtp_index){
+            std::memcpy(buffer, crtp_buffer, buffer_length);
+            std::memcpy(crtp_buffer, &crtp_buffer[buffer_length], (*crtp_index)-buffer_length);
+            bytes_received = buffer_length;
+            *crtp_index -= buffer_length;
+        } else {
+            std::memcpy(buffer, crtp_buffer, *crtp_index);
+            bytes_received = *crtp_index;
+            *crtp_index = 0;
         }
 
+        transport_rc =  (0 != bytes_received)
+                    ? eprosima::uxr::TransportRc::ok
+                    : eprosima::uxr::TransportRc::server_error;
+        //std::cout << buffer_length <<  bytes_received << std::endl;
+        //std::cout << "Buffer len: " << buffer_length << "\tIndex: " << *crtp_index << "\treceived: " << bytes_received << std::endl;
 
         return bytes_received;
     };
@@ -166,37 +148,25 @@ int main(int argc, char** argv)
         size_t message_length,
         eprosima::uxr::TransportRc& transport_rc) -> ssize_t
     {
-        struct sockaddr_in client_addr{};
-
-        memset(&client_addr, 0, sizeof(client_addr));
-        client_addr.sin_family = AF_INET;
-        client_addr.sin_port = destination_endpoint->get_member<uint16_t>("port");
-        client_addr.sin_addr.s_addr = destination_endpoint->get_member<uint32_t>("address");
-
-        ssize_t bytes_sent =
-            sendto(
-                poll_fd.fd,
-                buffer,
-                message_length,
-                0,
-                reinterpret_cast<struct sockaddr*>(&client_addr),
-                sizeof(client_addr));
-
-        transport_rc = (-1 != bytes_sent)
-            ? eprosima::uxr::TransportRc::ok
-            : eprosima::uxr::TransportRc::server_error;
-
-        if (eprosima::uxr::TransportRc::ok == transport_rc)
-        {
-            UXR_AGENT_LOG_INFO(
-                UXR_DECORATE_GREEN(
-                    "This is an example of a custom Micro XRCE-DDS Agent SEND_MSG function"),
-                "port: {}",
-                agent_port);
-        }
-
+        size_t bytes_sent = 0;
+        size_t len = message_length;
+        size_t to_write;
+        //std::cout << "wrinting" << len << std::endl;
+        while (len > 0){
+            //std::cout << "In the loop" << len << std::endl;
+            to_write = (len <= CRTP_MAX_DATA_SIZE) ? len : CRTP_MAX_DATA_SIZE;
+            Packet p;
+            p.setPort(UROS_PORT);
+            p.setPayloadSize(to_write);
+            std::memcpy(p.payload(), &buffer[bytes_sent], to_write);
+            con1.send(p);
+            transport_rc == eprosima::uxr::TransportRc::ok; //ToDo: Actually check if ok
+            len -= to_write;
+            bytes_sent += to_write;
+            //std::cout << "len" << message_length << "\tto_write: " << to_write << "\tbytes sent: " << bytes_sent << std::endl;
+        } 
         return bytes_sent;
-    };
+    };  
 
     /**
      * Run the main application.
@@ -207,17 +177,16 @@ int main(int argc, char** argv)
          * EndPoint definition for this transport. We define an address and a port.
          */
         eprosima::uxr::CustomEndPoint custom_endpoint;
-        custom_endpoint.add_member<uint32_t>("address");
-        custom_endpoint.add_member<uint16_t>("port");
+        custom_endpoint.add_member<std::string>("uri");
 
         /**
          * Create a custom agent instance.
          */
         eprosima::uxr::CustomAgent custom_agent(
-            "UDPv4_CUSTOM",
+            "CRTP",
             &custom_endpoint,
             mw_kind,
-            false,
+            true,
             init_function,
             fini_function,
             send_msg_function,
