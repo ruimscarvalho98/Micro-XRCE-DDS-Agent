@@ -334,7 +334,9 @@ endif()
 
 # Examples
 if(UAGENT_BUILD_USAGE_EXAMPLES)
-    add_subdirectory(examples/custom_agent)
+    #add_subdirectory(examples/custom_agent)
+    add_subdirectory(examples/MultiCRTPAgent)
+    add_subdirectory(examples/SingleCRTPAgent)
 endif()
 
 # XML default profile used to launch exec in the building folder

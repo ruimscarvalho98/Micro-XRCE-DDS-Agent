@@ -25,8 +25,9 @@
 #include <iostream>
 #include <fstream>
 #include <unistd.h>
+#include <map> 
 
-#define CRTP_MAX_DATA_SIZE 29
+#define CRTP_MAX_DATA_SIZE 30
 #define UROS_PORT 9
 #define CONSOLE_PORT 0
 #define DEFAULT_CHANNEL 80
@@ -53,6 +54,7 @@ int main(int argc, char** argv)
 {
     eprosima::uxr::Middleware::Kind mw_kind(eprosima::uxr::Middleware::Kind::FASTDDS);
 
+    /*
     if (argc < 2){
         std::cout << "Please specify uri! Aborted." << std::endl;
         exit(1);
@@ -60,10 +62,15 @@ int main(int argc, char** argv)
         std::cout << "Too many arguments! Only one uri supported (for now) Aborted." << std::endl;
         exit(1);
     }
+    */
 
-    std::string uri = argv[1];
+    //std::string uri = argv[1];
     
-    Connection con1(uri);
+    //Incrivelmente trolha refactor later
+    std::vector<std::string> uris({"radio://0/80/2M/E7E7E7E7E3", "radio://0/80/2M/E7E7E7E7E9"});
+    Connection con1("radio://0/80/2M/E7E7E7E7E3");
+    Connection con2("radio://0/80/2M/E7E7E7E7E9");
+
     std::ofstream debug_file;
     /**
      * @brief Agent's initialization behaviour description.
@@ -97,45 +104,46 @@ int main(int argc, char** argv)
         //std::cout << "in receive function " << std::endl;
         size_t bytes_received = 0;
         size_t * crtp_index = &crtp_index_primary;
-        source_endpoint->set_member_value<std::string>("uri", uri);
+        static uint32_t call_count = 0;
+        uint8_t con_idx = call_count % uris.size();
+
 
         Packet p; 
-        do {
-            p = con1.recv(timeout);
-            if (p.valid()){
-                //std::cout << "Is valid" << std::endl;
-            } else {
-                //std::cout << "Isnt valid" << std::endl;
-                continue;
-            }
-
-            if (p.port() == UROS_PORT){ 
-                DEBUG_PRINT("received uros packet " << (int )p.port() << "index: " << *crtp_index);
-                std::memcpy(&crtp_buffer[*crtp_index], p.payload(), p.payloadSize());
-                *crtp_index += p.payloadSize();
-            } else if (p.port() == CONSOLE_PORT){
-                std::string str((const char*)p.payload(), (size_t)p.payloadSize());
-                CONSOLE_PRINT("[CONSOLE] " << str);
-            }
-         } while (*crtp_index < buffer_length) ;
-        
-        if (buffer_length < *crtp_index){
-            std::memcpy(buffer, crtp_buffer, buffer_length);
-            std::memcpy(crtp_buffer, &crtp_buffer[buffer_length], (*crtp_index)-buffer_length);
-            bytes_received = buffer_length;
-            *crtp_index -= buffer_length;
-        } else {
-            std::memcpy(buffer, crtp_buffer, *crtp_index);
-            bytes_received = *crtp_index;
-            *crtp_index = 0;
+        //std::cout << "Connecting to: " + uris[con_idx] << std::endl;
+        switch(con_idx){
+            case 0:
+                p = con1.recv(timeout);
+                source_endpoint->set_member_value<std::string>("uri", uris[con_idx]);
+                source_endpoint->set_member_value<uint8_t>("id", 0);
+                break;
+            case 1:
+                p = con2.recv(timeout);
+                source_endpoint->set_member_value<std::string>("uri", uris[con_idx]);
+                source_endpoint->set_member_value<uint8_t>("id", 1);
+                break;
+            default:
+                std::cout << "Invalid Connection" << std::endl;
         }
 
-        transport_rc =  (0 != bytes_received)
-                    ? eprosima::uxr::TransportRc::ok
-                    : eprosima::uxr::TransportRc::server_error;
-        //std::cout << buffer_length <<  bytes_received << std::endl;
-        //std::cout << "Buffer len: " << buffer_length << "\tIndex: " << *crtp_index << "\treceived: " << bytes_received << std::endl;
+        if (p.valid() && p.port() == UROS_PORT){ 
+            DEBUG_PRINT("received uros packet " << (int )p.port() << "index: " << *crtp_index);
+            std::memcpy(buffer, p.payload(), p.payloadSize());
+            bytes_received = p.payloadSize();
+            source_endpoint->set_member_value<std::string>("uri", uris[con_idx]);
+            transport_rc =  (0 != bytes_received)
+                ? eprosima::uxr::TransportRc::ok
+                : eprosima::uxr::TransportRc::server_error;
+        } else if (p.port() == CONSOLE_PORT){
+            std::cout << "[Console]" << p.payload() << std::endl;
+            bytes_received = 0;
+            transport_rc = eprosima::uxr::TransportRc::timeout_error;
+        } else {
+            bytes_received = 0;
+            transport_rc = eprosima::uxr::TransportRc::timeout_error;
+        }        
 
+
+        call_count++;
         return bytes_received;
     };
 
@@ -151,6 +159,7 @@ int main(int argc, char** argv)
         size_t bytes_sent = 0;
         size_t len = message_length;
         size_t to_write;
+        uint8_t id = destination_endpoint->get_member<uint8_t>("id");
         //std::cout << "wrinting" << len << std::endl;
         while (len > 0){
             //std::cout << "In the loop" << len << std::endl;
@@ -159,7 +168,17 @@ int main(int argc, char** argv)
             p.setPort(UROS_PORT);
             p.setPayloadSize(to_write);
             std::memcpy(p.payload(), &buffer[bytes_sent], to_write);
-            con1.send(p);
+            switch(id){
+                case 0:
+                    con1.send(p);
+                    break;
+                case 1:
+                    con2.send(p);
+                    break;
+                default:
+                    std::cout << "Invalid id" << std::endl;
+                    break;
+            }
             transport_rc == eprosima::uxr::TransportRc::ok; //ToDo: Actually check if ok
             len -= to_write;
             bytes_sent += to_write;
@@ -178,6 +197,7 @@ int main(int argc, char** argv)
          */
         eprosima::uxr::CustomEndPoint custom_endpoint;
         custom_endpoint.add_member<std::string>("uri");
+        custom_endpoint.add_member<uint8_t>("id");
 
         /**
          * Create a custom agent instance.

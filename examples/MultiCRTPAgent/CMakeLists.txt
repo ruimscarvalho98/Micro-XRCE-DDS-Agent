@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 if (UAGENT_BUILD_USAGE_EXAMPLES)
-    add_executable(CustomXRCEAgent custom_agent.cpp)
-    target_link_libraries(CustomXRCEAgent
+    add_executable(MultiCRTPAgent multi_crtp.cpp)
+    target_link_libraries(MultiCRTPAgent
         PRIVATE
             ${PROJECT_NAME}
             $<$<BOOL:$<PLATFORM_ID:Linux>>:rt>
@@ -30,16 +30,16 @@ if (UAGENT_BUILD_USAGE_EXAMPLES)
         ${LIBUSB_INCLUDE_DIR}
         ${CF_LINK_CPP_PATH}/include
     )
-    target_link_libraries(CustomXRCEAgent PRIVATE ${LIBUSB_LIBRARY})
+    target_link_libraries(MultiCRTPAgent PRIVATE ${LIBUSB_LIBRARY})
 
             
-    target_link_libraries(CustomXRCEAgent 
+    target_link_libraries(MultiCRTPAgent
     PRIVATE 
         ${CF_LINK_CPP_PATH}/build/libcrazyflieLinkCpp.a
     )
         
     
-    set_target_properties(CustomXRCEAgent
+    set_target_properties(MultiCRTPAgent
         PROPERTIES
             CXX_STANDARD
                 11
