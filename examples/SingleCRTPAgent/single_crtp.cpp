@@ -26,14 +26,14 @@
 #include <fstream>
 #include <unistd.h>
 
-#define CRTP_MAX_DATA_SIZE 29
+#define CRTP_MAX_DATA_SIZE 30
 #define UROS_PORT 9
 #define CONSOLE_PORT 0
 #define DEFAULT_CHANNEL 80
 #define BUFFER_SIZE 10000
 
 //Enable or disable debugging
-//#define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 #define DEBUG_PRINT(x) std::cout << x << std::endl;
@@ -44,9 +44,6 @@
 
 
 using namespace bitcraze::crazyflieLinkCpp;
-
-static size_t crtp_index_primary = 0;
-static uint8_t * crtp_buffer; 
 
 
 int main(int argc, char** argv)
@@ -71,7 +68,6 @@ int main(int argc, char** argv)
     eprosima::uxr::CustomAgent::InitFunction init_function = [&]() -> bool
     {
         debug_file.open("debug.txt");
-        crtp_buffer = static_cast<uint8_t *>(malloc(BUFFER_SIZE));
         return true;
     };
 
@@ -94,25 +90,26 @@ int main(int argc, char** argv)
             int timeout,
             eprosima::uxr::TransportRc& transport_rc) -> ssize_t
     {
-        //std::cout << "in receive function " << std::endl;
         size_t bytes_received = 0;
-        size_t * crtp_index = &crtp_index_primary;
-
+        
         Packet p; 
-        //std::cout << "Connecting to: " + uris[con_idx] << std::endl;
         p = con1.recv(timeout);
         source_endpoint->set_member_value<std::string>("uri", uri);
         source_endpoint->set_member_value<uint8_t>("id", 0);
 
         if (p.valid() && p.port() == UROS_PORT){ 
-            DEBUG_PRINT("received uros packet " << (int )p.port() << "index: " << *crtp_index);
+            DEBUG_PRINT("received uros packet " << (int )p.port());
             std::memcpy(buffer, p.payload(), p.payloadSize());
             bytes_received = p.payloadSize();
             transport_rc =  (0 != bytes_received)
                 ? eprosima::uxr::TransportRc::ok
                 : eprosima::uxr::TransportRc::server_error;
-        } else if (p.port() == CONSOLE_PORT){
-            std::cout << "[Console]" << p.payload() << std::endl;
+        } else if (p.valid() && p.port() == CONSOLE_PORT){
+            DEBUG_PRINT("[Console]" << p.payload() << std::endl);
+            bytes_received = 0;
+            transport_rc = eprosima::uxr::TransportRc::timeout_error;
+        } else if (p.valid()){
+            //DEBUG_PRINT("Received packet from port:" <<  (int )p.port() );
             bytes_received = 0;
             transport_rc = eprosima::uxr::TransportRc::timeout_error;
         } else {
@@ -135,9 +132,8 @@ int main(int argc, char** argv)
         size_t bytes_sent = 0;
         size_t len = message_length;
         size_t to_write;
-        //std::cout << "wrinting" << len << std::endl;
+
         while (len > 0){
-            //std::cout << "In the loop" << len << std::endl;
             to_write = (len <= CRTP_MAX_DATA_SIZE) ? len : CRTP_MAX_DATA_SIZE;
             Packet p;
             p.setPort(UROS_PORT);
