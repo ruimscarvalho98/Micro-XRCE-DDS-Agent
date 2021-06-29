@@ -33,7 +33,7 @@
 #define BUFFER_SIZE 10000
 
 //Enable or disable debugging
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #define DEBUG_PRINT(x) std::cout << x << std::endl;
