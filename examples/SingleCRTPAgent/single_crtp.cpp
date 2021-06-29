@@ -13,7 +13,6 @@
 // limitations under the License.
 
 #include <uxr/agent/transport/custom/CustomAgent.hpp>
-#include <uxr/agent/transport/endpoint/IPv4EndPoint.hpp>
 #include <crazyflieLinkCpp/Connection.h>
 
 #include <poll.h>
