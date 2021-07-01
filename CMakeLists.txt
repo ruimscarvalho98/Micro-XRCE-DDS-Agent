@@ -28,6 +28,7 @@ option(UAGENT_USE_INTERNAL_GTEST "Enable internal GTest libraries." OFF)
 option(BUILD_SHARED_LIBS "Control shared/static building." ON)
 
 option(UAGENT_USE_SYSTEM_FASTDDS "Force find and use system installed Fast-DDS." OFF)
+option(UAGENT_USE_SYSTEM_FASTCDR "Force find and use system installed Fast-CDR." OFF)
 option(UAGENT_FAST_PROFILE "Build FastMiddleware profile." ON)
 option(UAGENT_CED_PROFILE "Build CedMiddleware profile." ON)
 option(UAGENT_DISCOVERY_PROFILE "Build Discovery profile." ON)
@@ -70,8 +71,12 @@ option(UAGENT_TWEAK_XRCE_WRITE_LIMIT "This feature uses a tweak to allow XRCE WR
 ###############################################################################
 set(_deps "")
 
-set(_fastcdr_version 1.0.13)
-set(_fastcdr_tag v1.0.13)
+if(UAGENT_USE_SYSTEM_FASTCDR)
+    set(_fastcdr_version 1)
+else()
+    set(_fastcdr_version 1.0.13)
+    set(_fastcdr_tag v1.0.13)
+endif()
 list(APPEND _deps "fastcdr\;${_fastcdr_version}")
 
 if(UAGENT_P2P_PROFILE)
@@ -87,7 +92,7 @@ if(UAGENT_FAST_PROFILE)
         set(_fastdds_version 2.0.2)
         set(_fastdds_tag v2.0.2)
         set(_foonathan_memory_tag c619113) # This tag should be updated every time it gets updated in foonathan_memory_vendor eProsima's package
-    endif()    
+    endif()
     list(APPEND _deps "fastrtps\;${_fastdds_version}")
 endif()
 
